@@ -1,6 +1,6 @@
 # Amazon S3 CloudFront Module for ProcessWire 2.4+
 
-This module/plugin provides a way to synchronize, serve and backup to Amazon S3/ CloudFront all the page assets uploaded through the Admin of ProcessWire.
+This module/plugin provides a way to synchronize, serve and backup to Amazon S3/ CloudFront all the page files uploaded through the Admin of ProcessWire.
 
 ## Requirements
 
@@ -14,11 +14,11 @@ This module/plugin provides a way to synchronize, serve and backup to Amazon S3/
 
 Put all the files inside /site/modules/AmazonS3Cloudfront/ and go to Admin>Modules>Check for New Modules and install. 
 
-You'll need to configure the module by entering your AWS Access and Secret keys and the name of the S3 Bucket you'll use to store the assets.
+You'll need to configure the module by entering your AWS Access and Secret keys and the name of the S3 Bucket you'll use to store the files.
 
 ## How does it work
 
-The module/plugin uploads the assets to S3 immediately as you add them to the pages in the admin of ProcessWire. It mimics the PW asset structure inside the S3 Bucket you defined. (/S3BUCKET/PAGE_ID/files).
+The module/plugin uploads the files to S3 immediately as you add them to the pages in the admin of ProcessWire. It mimics the PW asset structure inside the S3 Bucket you defined. (/S3BUCKET/PAGE_ID/files).
 
 The deleted files on PW pages are also deleted immediately from S3 but you have the option to create a backup to another folder on S3 for backup purposes.
 
@@ -26,11 +26,13 @@ The Module supports the use of image thumbnails created by the [Thumbnails modul
 
 Note: The thumbnails natively created by the PW Admin (ex: filename_0x100.jpg) are served from the local assets folder and not uploaded to S3.
 
-The module can automatically serve the content from Amazon CloudFront if a distribution is created for the S3 bucket used with this module. The assets URL's are automatically replaced. 
+The module can automatically serve the content from Amazon CloudFront if a distribution is created for the S3 bucket used with this module. The files URL's are automatically replaced. 
 
 ## Issues
 
-The module will only handle new assets uploaded after the installation. If you already have assets on your pages you'll definitely have errors. 
+This version of the module will only handle new files uploaded after the installation. If you already have files on your pages you'll definitely have errors.
+
+If you use the native size() method of ProcessWire (ex: $image->size(232, 176))to create image thumbnails, they will not be uploaded to S3 automatically. This issue should be solved soon as the dev branch of PW already has this method hookable. 
 
 ## Notes
 
