@@ -1,0 +1,404 @@
+<?php
+
+/**
+ * ProcessWire 'AmazonS3Cloudfront' Module
+ *
+ * Sync and Backup all page assets uploaded into PW to Amazon S3 and Deliver them via Amazon Cloudfront
+ * 
+ * ProcessWire 2.4
+ * Copyright (C) 2014 by Nelson Mendes
+ * Licensed under GNU/GPL v2
+ * 
+ * https://github.com/nmendes/amazons3cloudfront
+ */
+
+
+
+
+// Load AWS SDK for PHP
+
+require 'aws/aws-autoloader.php';
+use Aws\S3\S3Client;
+
+
+class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule {
+
+	public static function getModuleInfo() {
+
+		return array(
+			'title' => 'Amazon S3 / Cloudfront Delivery and Backup', 
+			'version' => 40, 
+			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon Cloudfront.',
+			'href' => 'https://github.com/nmendes/amazons3cloudfront',
+			'singular' => true, 
+			'autoload' => true, 
+			);
+	}
+
+	var $client;
+
+	/**********************************************************************************************
+	 * Module initialization. Defining Hooks.
+	 *
+	 **********************************************************************************************/
+
+	public function init() {
+
+		$this->client = S3Client::factory(array(
+			'key'    => $this->s3_key,
+			'secret' => $this->s3_secret
+			));
+
+		$this->addHook('InputfieldFile::fileAdded', $this, 'addFile');					// Fired when a file is added to a page in the admin
+		if(wire('modules')->isInstalled("FieldtypeCropImage"))
+			$this->addHookAfter('ProcessCropImage::executeSave', $this, 'addThumb');	// Fired when thumbnail is modified
+		$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');					// Fired when a file is deleted from a page
+		if($this->cf)
+			$this->addHookAfter('PagefilesManager::url', $this, 'redirectURL');	// Redirect assets' URLS to Cloudfront
+		if(wire('modules')->isInstalled("FieldtypeCropImage"))
+			if($this->cf)
+				$this->addHookAfter('Pageimage::getThumb', $this, 'redirectThumbsURL');	// Redirect thumbnails' URLS to Cloudfront
+	}
+
+	/**********************************************************************************************
+	 * Redirect assets URLs to Cloudfront
+	 *
+	 **********************************************************************************************/
+
+	public function redirectURL($event){
+		if($event->page->template == 'admin') return;
+		else
+			$event->return = "http://" . $this->cfurl . "/" .  $event->object->page . "/" . $event->object->name;
+	}
+
+	/**********************************************************************************************
+	 * Redirect ProcessCropImage thumbs URLs to Cloudfront
+	 *
+	 **********************************************************************************************/
+
+	public function redirectThumbsURL($event){
+		$localURL  = $event->return; 
+		$file = basename($localURL);
+		$event->return = "http://" . $this->cfurl . "/" .  $event->object->page . "/" . $file;
+	}
+
+	/**********************************************************************************************
+	 * Upload Files
+	 *
+	 **********************************************************************************************/
+
+	public function addFile($event){
+
+		$file = $event->arguments(0); 
+		$filename = $file->name;
+		$filename_original = $file->url;
+		$pathToFile = $file->filename();
+
+		$s3path = $file->page . "/" . $filename;
+
+		try{
+			$result = $this->client->putObject(array(
+				'Bucket' => $this->s3_bucket,
+				'Key'        => $s3path,			// filename on S3
+				'SourceFile' => $pathToFile,	    // path to uploaded file via PW
+				'ACL'	     => $this->select_acl,
+				'Metadata'   => array(
+					'original_url' => $filename_original,
+					'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
+				)
+			));
+		} 
+		catch (Exception $e){
+			throw new WireException("Error: File not Added to CDN: {$e->getMessage()}");  
+		} 
+
+		if(wire('modules')->isInstalled("FieldtypeCropImage")){							// Send Thumbnail created by2 ProcessCropImage Module
+			$page = $file->page->id;
+			$event->object = $file; 
+			$inputfield = $this->_getInputFieldInstance($event);
+			if(!$inputfield) return;
+			if(is_string($file)) $file = $file->get($file);
+			if(!$file) return;
+			$crops = $inputfield->thumbSetting;
+			$crops_a = explode("\n", $crops); 
+			foreach($crops_a as $crop) {
+				$crop = explode(',', $crop);
+				$name = wire('sanitizer')->name($crop[0]); 
+				if(!strlen($name)) continue; 
+				$cropFilename = $name . '_' . $file->basename;
+				$this->message("Adding thumbnail to CDN " . $page . "/" . $cropFilename, Notice::debug); 
+
+				$pathToThumb = str_replace($filename, $cropFilename, $pathToFile);
+				$s3path = $page . "/" . $cropFilename;
+				try{
+					$result = $this->client->putObject(array(
+						'Bucket' => $this->s3_bucket,
+						'Key'        => $s3path,		// filename on S3
+						'SourceFile' => $pathToThumb,	    // path to uploaded file via PW
+						'ACL'	     => $this->select_acl,
+						'Metadata'   => array(
+							'original_url' => $filename_original,
+							'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
+						)
+					));
+				} 
+				catch (Exception $e){
+					throw new WireException("Error: Thumbnail not Added to CDN: {$e->getMessage()}");  
+				} 
+			}
+		}
+	}
+
+	/**********************************************************************************************
+	 * Upload New Thumbnails created by ProcessCropImage Module
+	 *
+	 **********************************************************************************************/
+
+	public function addThumb($event){		
+		$page_id = (int) $this->input->post->pages_id;
+		$page = wire('pages')->get($page_id);
+		$prefix = wire('sanitizer')->name($this->input->post->prefix);
+		$field = wire('sanitizer')->fieldName($this->input->post->field);
+		$filename = wire('sanitizer')->name($this->input->post->filename);
+		$fieldValue = $page->get($field);
+		$img = $fieldValue->get("$filename");
+		$imagePath = $img->filename();
+		if (strlen($prefix) > 1) {
+			$thumbPath = $fieldValue->path() . $prefix . '_' . $filename;
+			$thumbUrl = $fieldValue->url() . $prefix . '_' . $filename;
+			$s3path = $page . "/" . $prefix . '_' . $filename;
+		} else {
+			$thumbPath = $imagePath;
+			$thumbUrl = $img->url();
+			$s3path = $page . "/" . $filename;
+		}
+		//$this->message("Thumbnail: " . $thumbPath . " " .  $thumbUrl, Notice::log); 
+		try{
+			$result = $this->client->putObject(array(
+				'Bucket' => $this->s3_bucket,
+				'Key'        => $s3path,		// filename on S3
+				'SourceFile' => $thumbPath,	    // path to uploaded file via PW
+				'ACL'	     => $this->select_acl,
+				'Metadata'   => array(
+					'original_url' => $img->url,
+					'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
+				)
+			));
+		}
+		catch (Exception $e){
+			throw new WireException("Error: Thumbnail not Added to CDN: {$e->getMessage()}");  
+		}
+	}
+
+	/**********************************************************************************************
+	 * Backup Object on S3 to another folder before deleting it
+	 *
+	 **********************************************************************************************/
+	
+	public function copyObject($s3path){
+		try{
+			$result = $this->client->copyObject(array(
+			'Bucket' => $this->s3_bucket,
+			'Key' => $this->s3_backupfolder . '/' . $s3path,
+			'CopySource' => $this->s3_bucket . '/' . $s3path
+			));
+		}
+		catch (Exception $e){
+			throw new WireException("Error: {$e->getMessage()}");  
+		}
+	}
+
+	/**********************************************************************************************
+	 * Delete File
+	 *
+	 **********************************************************************************************/
+
+	public function deleteFile($event){
+		$file = $event->arguments(0);
+		$page = $file->page->id;
+		$filename = $file->name;
+		$s3path = $page . "/" . $filename;
+		//$this->message("deleteFile called: {$s3path}", Notice::log);
+
+		if($this->backupfiles)						// Copy file to backup folder on S3		
+			$this->copyObject($s3path);
+
+		try{
+			$result = $this->client->deleteObject(array(
+			'Bucket' => $this->s3_bucket,
+			'Key' => $s3path
+			));
+		}
+		catch (Exception $e){
+			throw new WireException("Error: {$e->getMessage()}");  
+		}
+
+		if(wire('modules')->isInstalled("FieldtypeCropImage") && $file->field->type == "FieldtypeCropImage")
+			$this->deleteThumb($event);				// Call function to delete thumbnail if FieldtypeCropImage is used
+	}
+
+	/**********************************************************************************************
+	 * Delete Thumbnails created by FieldtypeCropImage Module
+	 *
+	 **********************************************************************************************/
+
+	public function deleteThumb($event){
+		$images = $event->object; 	
+		$image = $event->arguments[0];
+		$page = $image->page->id;
+		$event->object = $image; 
+		$inputfield = $this->_getInputFieldInstance($event);
+		if(!$inputfield) return;
+		if(is_string($image)) $image = $images->get($image);
+		if(!$image) return;
+		$crops = $inputfield->thumbSetting;
+		$crops_a = explode("\n", $crops); 
+		foreach($crops_a as $crop) {
+			$crop = explode(',', $crop);
+			$name = wire('sanitizer')->name($crop[0]); 
+			if(!strlen($name)) continue; 
+			$cropFilename = $name . '_' . $image->basename;
+			$this->message("Trying to delete thumbnail from " . $page . "/" . $cropFilename, Notice::debug); 
+			$s3path = $page . "/" . $cropFilename;
+			if($this->backupfiles)					// Copy thumbnail to backup folder on S3	
+				$this->copyObject($s3path);
+			try{
+				$result = $this->client->deleteObject(array(
+				'Bucket' => $this->s3_bucket,
+				'Key' => $s3path
+				));
+			}
+			catch (Exception $e){
+				throw new WireException("Error from CDN: {$e->getMessage()}");  
+			}
+			$this->message($this->_("Removed thumbnail from CDN: ") . ': ' . basename($cropFilename), Notice::debug); 
+		}
+	}
+
+	/**********************************************************************************************
+	 * _getInputFieldInstance (from the FieldtypeCropImage module)
+	 *
+	 **********************************************************************************************/
+
+	public function _getInputFieldInstance(HookEvent $event) {
+
+	
+		$field = null; // where we'll keep the field we're looking for
+		$image = $event->object;
+		$page = $image->page; 
+		$action = $event->arguments[0]; 
+
+		// find all fields of type FieldtypeImage that are part of the page we're using
+		// or regular image fields with InputfieldImage inputfield assigned
+		$imageFields = array(); 
+		foreach($page->fields as $f) {
+			if($f->type instanceof FieldtypeCropImage || ($f->inputfieldClass && $f->inputfieldClass == 'InputfieldCropImage')) {
+				$imageFields[] = $f; 
+			}
+		}
+
+		// loop through to find the one we're looking for
+		foreach($imageFields as $imageField) {
+
+			// good to get unformatted in case it's a single image field, 
+			// because it'll still be an array rather than 1 image
+			$pagefiles = $page->getUnformatted($imageField->name);
+			
+
+			// if the image's pagefiles property matches the one with the 
+			// field we're looking at, we have a match. save in $field
+			if($image->pagefiles === $pagefiles) {
+				$field = $imageField->getInputfield($page);
+				break;
+			}
+		}
+
+		if($field) {
+			//$event->return = $out;
+			return $field;
+		}
+		
+		return null;
+	}
+
+	/**********************************************************************************************
+	 * Get Module Configuration
+	 *
+	 **********************************************************************************************/
+
+	static public function getModuleConfigInputfields(array $data) {
+
+		$form = new InputfieldWrapper();
+		$sel = wire('modules')->get('InputfieldSelect');
+		$sel->attr('name', 'select_acl');
+		$sel->label = "ACL File Permissions for S3 Bucket files";
+		$sel->description = 'This can be used to define the file permissions uploaded to S3. If you use Cloudfront to serve your assets files, use the default "public-read". More information [here](http://docs.aws.amazon.com/AmazonS3/latest/dev/acl-overview.html#canned-acl).';
+		$sel->addOptions(
+			array(
+			'public-read'				=> 'public-read',				
+			'public-read-write' 		=> 'public-read-write',
+			'authenticated-read'		=> 'authenticated-read',
+			'bucket-owner-read'			=> 'bucket-owner-read',
+			'bucket-owner-full-control'	=> 'bucket-owner-full-control',
+			'private'					=> 'private'
+			)
+		);
+		$sel->attr("value", "public-read");	     // Default option
+		$sel->attr('value', $data['select_acl']);
+
+		$b = wire('modules')->get('InputfieldText');
+		$k = wire('modules')->get('InputfieldText');
+		$s = wire('modules')->get('InputfieldText');
+		$b->name = 's3_bucket'; 
+		$k->name = 's3_key'; 
+		$s->name = 's3_secret';
+		$b->label = 'Amazon S3 Bucket name:'; 
+		$b->description = 'A S3 Bucket must be created before using this module. Bucket names must be unique on S3. More information [here](http://docs.aws.amazon.com/AmazonS3/latest/dev/BucketRestrictions.html).';
+		$k->label = 'AWS Access Key ID:';
+		$s->label = 'AWS Secret Access Key:'; 
+		$b->value = $data['s3_bucket'];
+		$k->value = $data['s3_key'];
+		$s->value = $data['s3_secret'];
+
+		$cf = wire('modules')->get('InputfieldCheckbox');
+		$cf->attr('name','cf');
+		$cf->label = 'Use Cloudfront to serve the assets'; 
+		$cf->description = 'Check if you want to serve the assets directly from Amazon Cloudfront. Uncheck if you want to serve the asset files from the server where ProcessWire is installed.';
+		$cf->attr('autocheck', 1);
+		$cf->attr('uncheckedValue', 0);
+		$cf->attr('checkedValue', 1);
+		$cf->attr('value', $data['cf']);
+
+		$cfurl = wire('modules')->get('InputfieldText');
+		$cfurl->name = 'cfurl'; 
+		$cfurl->label = 'Domain name for the CloudFront distribution:'; 
+		$cfurl->description = 'Set up a Cloudfront distribution pointing to the S3 bucket above and deploy it. Use the domain name provided by Amazon or set up your own CNAME pointing to that domain.';
+		$cfurl->value = $data['cfurl'];
+
+		$backup = wire('modules')->get('InputfieldCheckbox');
+		$backup->attr('name','backupfiles');
+		$backup->label = 'Backup files to a separate folder when deleted ?'; 
+		$backup->description = 'If you want to keep a backup of all the asset files deleted, they will be moved to another folder inside S3 and defined below.';
+		$backup->attr('autocheck', 1);
+		$backup->attr('uncheckedValue', 0);
+		$backup->attr('checkedValue', 1);
+		$backup->attr('value', $data['backupfiles']);
+
+		$bfolder = wire('modules')->get('InputfieldText');
+		$bfolder->name = 's3_backupfolder'; 
+		$bfolder->label = 'Backup folder name on S3 Bucket:'; 
+		$bfolder->description = 'Set up a name for the backup folder on S3. It will be created automatically if it doesn\'t exists.';
+		$bfolder->attr("value", !empty($data['s3_backupfolder']) ? $data['s3_backupfolder'] : "_backup");
+
+		$form->add($k);
+		$form->add($s);
+		$form->add($b);
+		$form->add($sel);
+		$form->add($cf);
+		$form->add($cfurl);
+		$form->add($backup);
+		$form->add($bfolder);
+
+		return $form; 
+	}
+}
