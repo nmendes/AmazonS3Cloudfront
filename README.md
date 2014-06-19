@@ -14,7 +14,7 @@ This module/plugin provides a way to synchronize, serve and backup to Amazon S3/
 
 Put all the files inside /site/modules/AmazonS3Cloudfront/ and go to Admin>Modules>Check for New Modules and install. 
 
-You'll need to configure the module by entering your AWS Access and Secret keys and the name of the S3 Bucket you'll use to store the files.
+You'll need to configure the module by entering your AWS Access and Secret keys and the name of the S3 Bucket you'll use to store the files. I've set up a (video)[http://youtu.be/Hpj7AA0Rz14] and a (user policy document)[https://gist.github.com/nmendes/9053e1c3347dec7741d8] to help you out if you don't know how to do this.
 
 ## How does it work
 
