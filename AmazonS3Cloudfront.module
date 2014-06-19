@@ -349,6 +349,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$b = wire('modules')->get('InputfieldText');
 		$k = wire('modules')->get('InputfieldText');
 		$s = wire('modules')->get('InputfieldText');
+		$s->type = 'password';					// Masks access key in the module configuration
 		$b->name = 's3_bucket'; 
 		$k->name = 's3_key'; 
 		$s->name = 's3_secret';
