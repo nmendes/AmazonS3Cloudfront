@@ -102,6 +102,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 				'Key'        => $s3path,			// filename on S3
 				'SourceFile' => $pathToFile,	    // path to uploaded file via PW
 				'ACL'	     => $this->select_acl,
+				'Expires'	 => date('D, d M Y H:i:s O', time()+157860000),  // Used to set the Expires Tag (5 years),
 				'Metadata'   => array(
 					'original_url' => $filename_original,
 					'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
@@ -136,6 +137,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 						'Key'        => $s3path,		// filename on S3
 						'SourceFile' => $pathToThumb,	    // path to uploaded file via PW
 						'ACL'	     => $this->select_acl,
+						'Expires'	 => date('D, d M Y H:i:s O', time()+157860000),  // Used to set the Expires Tag (5 years),
 						'Metadata'   => array(
 							'original_url' => $filename_original,
 							'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
@@ -179,6 +181,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 				'Key'        => $s3path,		// filename on S3
 				'SourceFile' => $thumbPath,	    // path to uploaded file via PW
 				'ACL'	     => $this->select_acl,
+				'Expires'	 => date('D, d M Y H:i:s O', time()+157860000),  // Used to set the Expires Tag (5 years),
 				'Metadata'   => array(
 					'original_url' => $img->url,
 					'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
