@@ -27,7 +27,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		return array(
 			'title' => 'Amazon S3 / Cloudfront Delivery and Backup', 
-			'version' => 40, 
+			'version' => 41, 
 			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon Cloudfront.',
 			'href' => 'https://github.com/nmendes/amazons3cloudfront',
 			'singular' => true, 
