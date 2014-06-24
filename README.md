@@ -28,7 +28,7 @@ Note: The thumbnails natively created by the PW Admin (ex: filename_0x100.jpg) a
 
 The module can automatically serve the content from Amazon CloudFront if a distribution is created for the S3 bucket used with this module. The files URL's are automatically replaced. 
 
-If you choose 'Set Expires Header' in the module configuration, all the files uploaded to S3 will have set the Expires tag that is a recommended performance improvement. See more information [here](https://developer.yahoo.com/performance/rules.html#expires).
+You can set a number of seconds to set the Cache-Control Directive and handle the cache time for both the browser and CloudFront. See more information [here](http://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html).
 
 ## Issues
 

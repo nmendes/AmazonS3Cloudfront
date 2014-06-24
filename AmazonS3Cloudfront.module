@@ -26,9 +26,9 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 	public static function getModuleInfo() {
 
 		return array(
-			'title' => 'Amazon S3 / Cloudfront Delivery and Backup', 
-			'version' => 43, 
-			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon Cloudfront.',
+			'title' => 'Amazon S3 / CloudFront Delivery and Backup', 
+			'version' => 44, 
+			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon CloudFront.',
 			'href' => 'https://github.com/nmendes/amazons3cloudfront',
 			'singular' => true, 
 			'autoload' => true, 
@@ -107,8 +107,8 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			)
 		);
 
-		if($this->expires)													  // If Set Expires Header is checked on the module configuration
-			$s3args['Expires'] = date('D, d M Y H:i:s O', time()+157860000);  // Used to set the Expires Tag (5 years),
+		if(is_int($this->cache))				// Set Cache-Control Directive in seconds
+			$s3args['CacheControl'] = 'max-age=' . $this->cache;
 
 		try{
 			$result = $this->client->putObject($s3args);
@@ -117,7 +117,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			throw new WireException("Error: File not Added to S3: {$e->getMessage()}");  
 		} 
 
-		if(wire('modules')->isInstalled("FieldtypeCropImage")){							// Send Thumbnail created by2 ProcessCropImage Module
+		if(wire('modules')->isInstalled("FieldtypeCropImage")){							// Send Thumbnail created by ProcessCropImage Module
 			$page = $file->page->id;
 			$event->object = $file; 
 			$inputfield = $this->_getInputFieldInstance($event);
@@ -175,7 +175,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$s3args = array(
 			'Bucket' 	 => $this->s3_bucket,
 			'Key'        => $s3path,			// filename on S3
-			'SourceFile' => $thumbPath,	    // path to uploaded file via PW
+			'SourceFile' => $thumbPath,	    	// path to uploaded file via PW
 			'ACL'	     => $this->select_acl,
 			'Metadata'   => array(
 				'original_url' => $img->url,
@@ -183,8 +183,8 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			)
 		);
 
-		if($this->expires)													  // If Set Expires Header is checked on the module configuration
-			$s3args['Expires'] = date('D, d M Y H:i:s O', time()+157860000);  // Used to set the Expires Tag (5 years),
+		if(is_int($this->cache))				 // Set Cache-Control Directive in seconds
+			$s3args['CacheControl'] = 'max-age=' . $this->cache;
 
 		try{
 			$result = $this->client->putObject($s3args);
@@ -365,19 +365,18 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$k->value = $data['s3_key'];
 		$s->value = $data['s3_secret'];
 
-		$exp= wire('modules')->get('InputfieldCheckbox');
-		$exp->attr('name','expires');
-		$exp->label = 'Set Expires Header for the files uploaded to S3'; 
-		$exp->description = 'If checked, it will set an Expires tag for the files of 5 years. This is a recommended performance improvement. Read more about it [here](https://developer.yahoo.com/performance/rules.html#expires).';
-		$exp->attr('autocheck', 1);
-		$exp->attr('uncheckedValue', 0);
-		$exp->attr('checkedValue', 1);
-		$exp->attr('value', $data['exp']);
+		$cache= wire('modules')->get('InputfieldText');
+		$cache->attr('name','cache');
+		$cache->label = 'Set Cache-Control Directive for the files uploaded to S3'; 
+		$cache->description = 'Fill this field with the a number of seconds, it will set an Cache-Control: max-age=seconds on the files to handle the browser and CloudFront cache. Read more about it [here](http://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html). Leaving the field blank doesn\'t add any directive to the files.';
+		$cache->attr("value", empty($data['cache']) || is_int($data['cache']) ? $data['cache'] : "86400");
+		$cache->notes = "Ex: 3600 = 1 hour; 86400 = 24 hours; 604800 = 7 days; 2592000 = 30 days;";
+
 
 		$cf = wire('modules')->get('InputfieldCheckbox');
 		$cf->attr('name','cf');
-		$cf->label = 'Use Cloudfront to serve the assets'; 
-		$cf->description = 'Check if you want to serve the assets directly from Amazon Cloudfront. Uncheck if you want to serve the asset files from the server where ProcessWire is installed.';
+		$cf->label = 'Use CloudFront to serve the assets'; 
+		$cf->description = 'Check if you want to serve the assets directly from Amazon CloudFront. Uncheck if you want to serve the asset files from the server where ProcessWire is installed.';
 		$cf->attr('autocheck', 1);
 		$cf->attr('uncheckedValue', 0);
 		$cf->attr('checkedValue', 1);
@@ -386,7 +385,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$cfurl = wire('modules')->get('InputfieldText');
 		$cfurl->name = 'cfurl'; 
 		$cfurl->label = 'Domain name for the CloudFront distribution:'; 
-		$cfurl->description = 'Set up a Cloudfront distribution pointing to the S3 bucket above and deploy it. Use the domain name provided by Amazon or set up your own CNAME pointing to that domain.';
+		$cfurl->description = 'Set up a CloudFront distribution pointing to the S3 bucket above and deploy it. Use the domain name provided by Amazon or set up your own CNAME pointing to that domain.';
 		$cfurl->value = $data['cfurl'];
 
 		$backup = wire('modules')->get('InputfieldCheckbox');
@@ -408,9 +407,9 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$form->add($s);
 		$form->add($b);
 		$form->add($sel);
-		$form->add($exp);
 		$form->add($cf);
 		$form->add($cfurl);
+		$form->add($cache);
 		$form->add($backup);
 		$form->add($bfolder);
 
