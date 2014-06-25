@@ -58,7 +58,31 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
 			if($this->cf)
 				$this->addHookAfter('Pageimage::getThumb', $this, 'redirectThumbsURL');	// Redirect thumbnails' URLS to Cloudfront
+
+		$this->addHookBefore('InputfieldFile::processInputAddFile', $this, 'renameFile');
 	}
+	
+
+
+	public function renameFile($event){
+		
+		$pageid = $this->input->get->id;
+		$field = $event->object;
+		$field = $this->fields->get($field->name);
+
+		if(!isset($field)) return;
+		if(!$field->type instanceof FieldtypeFile) return;
+
+		$fieldid = $field->id;
+		$filename = $event->arguments(0);
+
+		$fullFilename = $this->pages->get("$pageid")->filesManager()->path() . basename($filename);
+		$path_parts = pathinfo($fullFilename);
+		$newFilename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '-v'  . time() . '.' .  $path_parts['extension'];
+        if(file_exists($fullFilename)) rename($fullFilename, $newFilename);		// Rename file
+        $event->setArgument(0, $newFilename);									// Sets the ::processInputAddFile event argument with the new filename
+        $this->message("Renamed: $filename to: $newFilename", Notice::log);
+    }
 
 	/**********************************************************************************************
 	 * Redirect assets URLs to Cloudfront
