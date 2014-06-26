@@ -49,17 +49,17 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			'secret' => $this->s3_secret
 			));
 
-		$this->addHook('InputfieldFile::fileAdded', $this, 'addFile');					// Fired when a file is added to a page in the admin
+		$this->addHook('InputfieldFile::fileAdded', $this, 'addFile');						// Fired when a file is added to a page in the admin
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
-			$this->addHookAfter('ProcessCropImage::executeSave', $this, 'addThumb');	// Fired when thumbnail is modified
-		$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');					// Fired when a file is deleted from a page
+			$this->addHookAfter('ProcessCropImage::executeSave', $this, 'addThumb');		// Fired when thumbnail is modified
+		$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');						// Fired when a file is deleted from a page
 		if($this->cf)
-			$this->addHookAfter('PagefilesManager::url', $this, 'redirectURL');	// Redirect assets' URLS to Cloudfront
+			$this->addHookAfter('PagefilesManager::url', $this, 'redirectURL');				// Redirect assets' URLS to Cloudfront
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
 			if($this->cf)
-				$this->addHookAfter('Pageimage::getThumb', $this, 'redirectThumbsURL');	// Redirect thumbnails' URLS to Cloudfront
-
-		$this->addHookBefore('InputfieldFile::processInputAddFile', $this, 'renameFile');
+				$this->addHookAfter('Pageimage::getThumb', $this, 'redirectThumbsURL');	 	// Redirect thumbnails' URLS to Cloudfront
+		if($this->tstamp)
+		$this->addHookBefore('InputfieldFile::processInputAddFile', $this, 'renameFile');	// Rename files on upload attaching a timestamp
 	}
 
 	/**********************************************************************************************
@@ -205,7 +205,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$page_id = $this->input->get->id;
 		$field = $event->object;
-		$field = $this->fields->get($field->name);
+		$field = $this->fields->get($field->name); // !!!!!!!!!!!!!! NOT NECESSARY?????
 
 		if(!isset($field)) return;
 		if(!$field->type instanceof FieldtypeFile) return;
@@ -359,6 +359,22 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 	static public function getModuleConfigInputfields(array $data) {
 
 		$form = new InputfieldWrapper();
+		$fs_aws = wire('modules')->get("InputfieldFieldset");
+		$fs_aws->label = 'aws';
+		$fs_aws->id = 'fs_aws';
+
+		$fs_cf = wire('modules')->get("InputfieldFieldset");
+		$fs_cf->label = 'CloudFront';
+		$fs_cf->id = 'fs_cf';
+
+		$fs_s3 = wire('modules')->get("InputfieldFieldset");
+		$fs_s3->label = 'S3';
+		$fs_s3->id = 'fs_s3';
+
+		$form->add($fs_aws);
+		$form->add($fs_s3);
+		$form->add($fs_cf);
+
 		$sel = wire('modules')->get('InputfieldSelect');
 		$sel->attr('name', 'select_acl');
 		$sel->label = "ACL File Permissions for S3 Bucket files";
@@ -390,6 +406,14 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$b->value = $data['s3_bucket'];
 		$k->value = $data['s3_key'];
 		$s->value = $data['s3_secret'];
+		$k->width = 25;
+		$s->width = 25;
+
+		$fs_aws->add($k);
+		$fs_aws->add($s);
+		
+		$fs_s3->add($b);
+		$fs_s3->add($sel);
 
 		$cache = wire('modules')->get('InputfieldText');
 		$cache->attr('name','cache');
@@ -397,17 +421,6 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$cache->description = 'Fill this field with the a number of seconds, it will set an Cache-Control: max-age=seconds on the files to handle the browser and CloudFront cache. Read more about it [here](http://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html). Leaving the field blank doesn\'t add any directive to the files.';
 		$cache->attr("value", empty($data['cache']) || is_int($data['cache']) ? $data['cache'] : "86400");
 		$cache->notes = "Ex: 3600 = 1 hour; 86400 = 24 hours; 604800 = 7 days; 2592000 = 30 days;";
-
-		$tstamp = wire('modules')->get('InputfieldCheckbox');
-		$tstamp->attr('name','tstamp');
-		$tstamp->label = 'Rename uploaded files using a timestamp (versioning).'; 
-		$tstamp->description = 'Dealing with file caching is tricky when you need to replace a file with the same name on CloudFront. This option adds a timestamp to the uploaded files so they always have unique names.';
-		$tstamp->attr('autocheck', 1);
-		$tstamp->attr('uncheckedValue', 0);
-		$tstamp->attr('checkedValue', 1);
-		$tstamp->attr('value', $data['tstamp']);
-		$tstamp->notes = "Once the files are cached by CloudFront, they will remain cached by the period specified above. This option will add versioning to all the files uploaded so you can easily replace files. The files will be renamed by attaching a timestamp to all the files. Ex: yourfilename-v1403782033.jpg";
-
 
 		$cf = wire('modules')->get('InputfieldCheckbox');
 		$cf->attr('name','cf');
@@ -417,12 +430,25 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$cf->attr('uncheckedValue', 0);
 		$cf->attr('checkedValue', 1);
 		$cf->attr('value', $data['cf']);
+		$fs_cf->add($cf);
 
 		$cfurl = wire('modules')->get('InputfieldText');
 		$cfurl->name = 'cfurl'; 
 		$cfurl->label = 'Domain name for the CloudFront distribution:'; 
 		$cfurl->description = 'Set up a CloudFront distribution pointing to the S3 bucket above and deploy it. Use the domain name provided by Amazon or set up your own CNAME pointing to that domain.';
 		$cfurl->value = $data['cfurl'];
+		$fs_cf->add($cfurl);
+
+		$tstamp = wire('modules')->get('InputfieldCheckbox');
+		$tstamp->attr('name','tstamp');
+		$tstamp->label = 'Rename uploaded files using a timestamp (versioning).'; 
+		$tstamp->description = 'This option adds a timestamp to the uploaded files so they always have unique names.';
+		$tstamp->attr('autocheck', 1);
+		$tstamp->attr('uncheckedValue', 0);
+		$tstamp->attr('checkedValue', 1);
+		$tstamp->attr('value', $data['tstamp']);
+		$tstamp->notes = "Once the files are cached by CloudFront, they will remain cached by the period specified above. This option will add versioning to all the files uploaded so you can easily replace files. The files will be renamed by attaching a timestamp to all the file names. Ex: yourfilename-v1403782033.jpg";
+		$fs_cf->add($tstamp);
 
 		$backup = wire('modules')->get('InputfieldCheckbox');
 		$backup->attr('name','backupfiles');
@@ -433,22 +459,15 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$backup->attr('checkedValue', 1);
 		$backup->attr('value', $data['backupfiles']);
 
+		$fs_s3->add($backup);
+
 		$bfolder = wire('modules')->get('InputfieldText');
 		$bfolder->name = 's3_backupfolder'; 
 		$bfolder->label = 'Backup folder name on S3 Bucket:'; 
 		$bfolder->description = 'Set up a name for the backup folder on S3. It will be created automatically if it doesn\'t exists.';
 		$bfolder->attr("value", !empty($data['s3_backupfolder']) ? $data['s3_backupfolder'] : "_backup");
 
-		$form->add($k);
-		$form->add($s);
-		$form->add($b);
-		$form->add($sel);
-		$form->add($cf);
-		$form->add($cfurl);
-		$form->add($cache);
-		$form->add($tstamp);
-		$form->add($backup);
-		$form->add($bfolder);
+		$fs_s3->add($bfolder);
 
 		return $form; 
 	}
