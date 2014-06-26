@@ -203,24 +203,21 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 	public function renameFile($event){
 
-		$pageid = $this->input->get->id;
+		$page_id = $this->input->get->id;
 		$field = $event->object;
 		$field = $this->fields->get($field->name);
 
 		if(!isset($field)) return;
 		if(!$field->type instanceof FieldtypeFile) return;
-		$fieldid = $field->id;
-
-		if(!$pageid) return;
 
 		$filename = $event->arguments(0);
 
-		$fullFilename = $this->pages->get("$pageid")->filesManager()->path() . basename($filename);
-		$path_parts = pathinfo($fullFilename);
-		$newFilename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '-v'  . time() . '.' .  $path_parts['extension'];
-        if(file_exists($fullFilename)) rename($fullFilename, $newFilename);		// Rename file
-        $event->setArgument(0, $newFilename);									// Sets the ::processInputAddFile event argument with the new filename
-        //$this->message("Renamed: $filename to: $newFilename", Notice::log);
+		$full_filename = $this->pages->get("$page_id")->filesManager()->path() . basename($filename);
+		$path_parts = pathinfo($full_filename);
+		$new_filename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '-v'  . time() . '.' .  $path_parts['extension'];
+        if(file_exists($full_filename)) rename($full_filename, $new_filename);		// Rename file
+        $event->setArgument(0, $new_filename);										// Sets the ::processInputAddFile event argument with the new filename
+        //$this->message("Renamed: $filename to: $new_filename", Notice::log);
     }
 
 	/**********************************************************************************************
@@ -394,12 +391,22 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$k->value = $data['s3_key'];
 		$s->value = $data['s3_secret'];
 
-		$cache= wire('modules')->get('InputfieldText');
+		$cache = wire('modules')->get('InputfieldText');
 		$cache->attr('name','cache');
 		$cache->label = 'Set Cache-Control Directive for the files uploaded to S3'; 
 		$cache->description = 'Fill this field with the a number of seconds, it will set an Cache-Control: max-age=seconds on the files to handle the browser and CloudFront cache. Read more about it [here](http://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html). Leaving the field blank doesn\'t add any directive to the files.';
 		$cache->attr("value", empty($data['cache']) || is_int($data['cache']) ? $data['cache'] : "86400");
 		$cache->notes = "Ex: 3600 = 1 hour; 86400 = 24 hours; 604800 = 7 days; 2592000 = 30 days;";
+
+		$tstamp = wire('modules')->get('InputfieldCheckbox');
+		$tstamp->attr('name','tstamp');
+		$tstamp->label = 'Rename uploaded files using a timestamp (versioning).'; 
+		$tstamp->description = 'Dealing with file caching is tricky when you need to replace a file with the same name on CloudFront. This option adds a timestamp to the uploaded files so they always have unique names.';
+		$tstamp->attr('autocheck', 1);
+		$tstamp->attr('uncheckedValue', 0);
+		$tstamp->attr('checkedValue', 1);
+		$tstamp->attr('value', $data['tstamp']);
+		$tstamp->notes = "Once the files are cached by CloudFront, they will remain cached by the period specified above. This option will add versioning to all the files uploaded so you can easily replace files. The files will be renamed by attaching a timestamp to all the files. Ex: yourfilename-v1403782033.jpg";
 
 
 		$cf = wire('modules')->get('InputfieldCheckbox');
@@ -439,6 +446,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$form->add($cf);
 		$form->add($cfurl);
 		$form->add($cache);
+		$form->add($tstamp);
 		$form->add($backup);
 		$form->add($bfolder);
 
