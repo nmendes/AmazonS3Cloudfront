@@ -27,7 +27,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		return array(
 			'title' => 'Amazon S3 / CloudFront Delivery and Backup', 
-			'version' => 44, 
+			'version' => 50, 
 			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon CloudFront.',
 			'href' => 'https://github.com/nmendes/amazons3cloudfront',
 			'singular' => true, 
@@ -59,7 +59,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			if($this->cf)
 				$this->addHookAfter('Pageimage::getThumb', $this, 'redirectThumbsURL');	 	// Redirect thumbnails' URLS to Cloudfront
 		if($this->tstamp)
-		$this->addHookBefore('InputfieldFile::processInputAddFile', $this, 'renameFile');	// Rename files on upload attaching a timestamp
+			$this->addHookBefore('InputfieldFile::processInputAddFile', $this, 'renameFile');	// Rename files on upload attaching a timestamp
 	}
 
 	/**********************************************************************************************
@@ -460,7 +460,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$tstamp->attr('uncheckedValue', 0);
 		$tstamp->attr('checkedValue', 1);
 		$tstamp->attr('value', $data['tstamp']);
-		$tstamp->notes = "Once the files are cached by CloudFront, they will remain cached by the period specified above. This option will add versioning to all the files uploaded so you can easily replace files. The files will be renamed by attaching a timestamp to all the file names. Ex: yourfilename-v1403782033.jpg";
+		$tstamp->notes = "Once the files are cached by CloudFront, they will remain cached by the period specified above. This option will add versioning to all the files uploaded so you can easily replace files. The files will be renamed using a timestamp inserted in all the file names. Ex: yourfilename-v1403782033.jpg";
 
 		$fs_cf->add($cf);
 		$fs_cf->add($cfurl);
