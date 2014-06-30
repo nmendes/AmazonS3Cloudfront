@@ -30,9 +30,11 @@ The module can automatically serve the content from Amazon CloudFront if a distr
 
 You can set a number of seconds to set the Cache-Control Directive and handle the cache time for both the browser and CloudFront. See more information [here](http://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/Expiration.html).
 
+There's an option for file versioning to use with CloudFront that automatically renames all the files uploaded by adding a timestamp like: yourfilename-v1403782033.jpg. This will make every filename unique so it's easier to manage the caching of files. I recommend that you use this option or it can become very hard to replace files already cached by Amazon.
+
 ## Issues
 
-This version of the module will only handle new files uploaded after the installation. If you already have files on your pages you'll definitely have errors.
+This version of the module will only handle new files uploaded after the installation. If you already have files on your pages they will not be uploaded to S3 and you can get errors because the files inside PW will not match the files on S3.
 
 If you use the native size() method of ProcessWire (ex: $image->size(232, 176))to create image thumbnails, they will not be uploaded to S3 automatically. This issue should be solved soon as the dev branch of PW already has this method hookable. 
 
