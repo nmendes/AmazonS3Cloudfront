@@ -412,7 +412,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 				
 		$backup = wire('modules')->get('InputfieldCheckbox');
 		$backup->attr('name','backupfiles');
-		$backup->label = 'Backup files to a separate folder when deleted ?'; 
+		$backup->label = 'Backup deleted files to a separate folder'; 
 		$backup->description = 'If you want to keep a backup of all the asset files deleted, they will be moved to another folder inside S3 and defined below.';
 		$backup->attr('autocheck', 1);
 		$backup->attr('uncheckedValue', 0);
