@@ -51,8 +51,8 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$this->addHook('InputfieldFile::fileAdded', $this, 'addFile');						// Fired when a file is added to a page in the admin
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
-			$this->addHookAfter('ProcessCropImage::executeSave', $this, 'addThumb');		// Fired when thumbnail is modified
-		//$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');						// Fired when a file is deleted from a page
+			$this->addHook('ProcessCropImage::executeSave', $this, 'addThumb');				// Fired when thumbnail is modified
+		$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');						// Fired when a file is deleted from a page
 		if($this->cf)
 			$this->addHookAfter('PagefilesManager::url', $this, 'redirectURL');				// Redirect assets' URLS to Cloudfront
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
@@ -159,6 +159,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$page_id = (int) $this->input->post->pages_id;
 		$page = wire('pages')->get($page_id);
 		$prefix = wire('sanitizer')->name($this->input->post->prefix);
+		$this->message("prefix: $prefix", Notice::log);
 		$field = wire('sanitizer')->fieldName($this->input->post->field);
 		$filename = wire('sanitizer')->name($this->input->post->filename);
 		$this->message("Filename: $filename", Notice::log);
@@ -169,26 +170,21 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$this->message("image: $imagePath belongs to $field", Notice::log);
 		$path = str_replace($img,'',$imagePath);
-		$old_img = pathinfo($img)['filename']; // no extension
-		$tmp_img = $this->addTimeStamp($this->removeTimeStamp( pathinfo($img)['filename'] )) . "." . $img->ext;
-		$new_img = $path . $tmp_img;
+		$old_img = pathinfo($img)['filename']; 													// old filename with no extension
+		$tmp_img = $this->addTimeStamp($this->removeTimeStamp( pathinfo($img)['filename'] )) . "." . $img->ext;   // removes old timestamp and adds new
+		$new_img = $path . $tmp_img; 															// new filename with full path
 		$this->message("new image: $new_img", Notice::log);
-		copy($imagePath, $new_img);
-		$page->$field->remove($img); 				// Remove old file
-		$page->$field->add($new_img); 				// Add new one
+		copy($imagePath, $new_img);	
+		$page->$field->remove($img); 															// Removes old file reference from PW
+		$page->$field->add($new_img); 															// Adds new file reference to PW
 		$s3path = $page . "/" . $tmp_img;
 		$s3source = $page . '/' . $old_img . "." . $img->ext;
 		$this->message("old file on s3: $s3source", Notice::log);
 		$this->message("new target on S3: $s3path", Notice::log);
-		$page->save();
-
-
-		// NEW STUFF
-
-		// Copy File to a new name on S3
+		$page->save();		
 
 		try{
-			$result = $this->client->copyObject(array(
+			$result = $this->client->copyObject(array(											// Copy image with a new timestamp on S3
 				'Bucket' => $this->s3_bucket,
 				'Key' => $s3path,
 				'CopySource' => $this->s3_bucket . '/' . $s3source,
@@ -199,10 +195,8 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			throw new WireException("Error from S3: {$e->getMessage()}");  
 		}
 
-		// Delete old filename on S3
-
 		try{
-			$result = $this->client->deleteObject(array(
+			$result = $this->client->deleteObject(array(										// Deletes image with old timestamp on S3
 			'Bucket' => $this->s3_bucket,
 			'Key' => $s3source
 			));
@@ -211,22 +205,18 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			throw new WireException("Error from S3: {$e->getMessage()}");  
 		}
 
-
-		// END NEW STUFF
-
-		$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;
-		$newThumb = $path . $prefix . '_' . $tmp_img;
+		$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;		// old thumbnail filename
+		$newThumb = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
 		$this->message("oldThumb: $oldThumb : newthumb: $newThumb", Notice::log);
 
-		copy($oldThumb ,$newThumb);
-		unlink($oldThumb);
+		copy($oldThumb ,$newThumb);																// copies the new thumbnail 
+		unlink($oldThumb);																		// deletes the old thumbnail
 
 		if (strlen($prefix) > 1) {
 			$s3path = $page . "/" . $prefix . '_' . $tmp_img;
 		} else {
 			$s3path = $page . "/" . $tmp_img;
 		}
-		//$this->message("thumbPath: $thumbPath", Notice::log);
 		
 		$s3args = array(
 			'Bucket' 	 => $this->s3_bucket,
@@ -242,20 +232,16 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		if(is_int($this->cache))				 // Set Cache-Control Directive in seconds
 			$s3args['CacheControl'] = 'max-age=' . $this->cache;
 
-		try{
+		try{																						// Adds the new thumbnail to S3
 			$result = $this->client->putObject($s3args);
 		}
 		catch (Exception $e){
 			throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
 		}
 
-		// Delete old thumbnail on S3
+		$s3path = $page . "/" . $prefix . '_' . $old_img . "." . $img->ext;
 
-		$s3path = $page . "/" . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;
-
-		$this->message("trying to delete from S3: $s3path", Notice::log);
-
-		try{
+		try{																						// Delete old thumbnail on S3
 			$result = $this->client->deleteObject(array(
 				'Bucket' => $this->s3_bucket,
 				'Key' => $s3path
