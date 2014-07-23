@@ -52,7 +52,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$this->addHook('InputfieldFile::fileAdded', $this, 'addFile');						// Fired when a file is added to a page in the admin
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
 			$this->addHookAfter('ProcessCropImage::executeSave', $this, 'addThumb');		// Fired when thumbnail is modified
-		$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');						// Fired when a file is deleted from a page
+		//$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');						// Fired when a file is deleted from a page
 		if($this->cf)
 			$this->addHookAfter('PagefilesManager::url', $this, 'redirectURL');				// Redirect assets' URLS to Cloudfront
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
@@ -161,23 +161,77 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$prefix = wire('sanitizer')->name($this->input->post->prefix);
 		$field = wire('sanitizer')->fieldName($this->input->post->field);
 		$filename = wire('sanitizer')->name($this->input->post->filename);
+		$this->message("Filename: $filename", Notice::log);
 		$fieldValue = $page->get($field);
 		$img = $fieldValue->get("$filename");
 		$imagePath = $img->filename();
-		if (strlen($prefix) > 1) {
-			$thumbPath = $fieldValue->path() . $prefix . '_' . $filename;
-			$thumbUrl = $fieldValue->url() . $prefix . '_' . $filename;
-			$s3path = $page . "/" . $prefix . '_' . $filename;
-		} else {
-			$thumbPath = $imagePath;
-			$thumbUrl = $img->url();
-			$s3path = $page . "/" . $filename;
+
+
+		$this->message("image: $imagePath belongs to $field", Notice::log);
+		$path = str_replace($img,'',$imagePath);
+		$old_img = pathinfo($img)['filename']; // no extension
+		$tmp_img = $this->addTimeStamp($this->removeTimeStamp( pathinfo($img)['filename'] )) . "." . $img->ext;
+		$new_img = $path . $tmp_img;
+		$this->message("new image: $new_img", Notice::log);
+		copy($imagePath, $new_img);
+		$page->$field->remove($img); 				// Remove old file
+		$page->$field->add($new_img); 				// Add new one
+		$s3path = $page . "/" . $tmp_img;
+		$s3source = $page . '/' . $old_img . "." . $img->ext;
+		$this->message("old file on s3: $s3source", Notice::log);
+		$this->message("new target on S3: $s3path", Notice::log);
+		$page->save();
+
+
+		// NEW STUFF
+
+		// Copy File to a new name on S3
+
+		try{
+			$result = $this->client->copyObject(array(
+				'Bucket' => $this->s3_bucket,
+				'Key' => $s3path,
+				'CopySource' => $this->s3_bucket . '/' . $s3source,
+				'ACL'	     => $this->select_acl
+				));
 		}
+		catch (Exception $e){
+			throw new WireException("Error from S3: {$e->getMessage()}");  
+		}
+
+		// Delete old filename on S3
+
+		try{
+			$result = $this->client->deleteObject(array(
+			'Bucket' => $this->s3_bucket,
+			'Key' => $s3source
+			));
+		}
+		catch (Exception $e){
+			throw new WireException("Error from S3: {$e->getMessage()}");  
+		}
+
+
+		// END NEW STUFF
+
+		$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;
+		$newThumb = $path . $prefix . '_' . $tmp_img;
+		$this->message("oldThumb: $oldThumb : newthumb: $newThumb", Notice::log);
+
+		copy($oldThumb ,$newThumb);
+		unlink($oldThumb);
+
+		if (strlen($prefix) > 1) {
+			$s3path = $page . "/" . $prefix . '_' . $tmp_img;
+		} else {
+			$s3path = $page . "/" . $tmp_img;
+		}
+		//$this->message("thumbPath: $thumbPath", Notice::log);
 		
 		$s3args = array(
 			'Bucket' 	 => $this->s3_bucket,
 			'Key'        => $s3path,			// filename on S3
-			'SourceFile' => $thumbPath,	    	// path to uploaded file via PW
+			'SourceFile' => $newThumb,	    	// path to uploaded file via PW
 			'ACL'	     => $this->select_acl,
 			'Metadata'   => array(
 				'original_url' => $img->url,
@@ -194,6 +248,46 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		catch (Exception $e){
 			throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
 		}
+
+		// Delete old thumbnail on S3
+
+		$s3path = $page . "/" . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;
+
+		$this->message("trying to delete from S3: $s3path", Notice::log);
+
+		try{
+			$result = $this->client->deleteObject(array(
+				'Bucket' => $this->s3_bucket,
+				'Key' => $s3path
+				));
+		}
+		catch (Exception $e){
+			throw new WireException("Error from S3: {$e->getMessage()}");  
+		}
+	}
+
+	/**********************************************************************************************
+	 * Adds a timestamp to a filename
+	 *
+	 **********************************************************************************************/
+
+	private function addTimeStamp($name){
+  		$newName = $name . '--v' . time();
+		return $newName;
+	}
+
+	/**********************************************************************************************
+	 * Removes a timestamp from a filename
+	 *
+	 **********************************************************************************************/
+
+    private function removeTimeStamp($name){
+    	$pos = strrpos($name, '--v');
+    	if($pos > 0)
+  			$newName = substr($name, 0, $pos); // Finds the last occurrence of '--v' in a string
+  		else
+  			$newName = $name;
+		return $newName;
 	}
 
 	/**********************************************************************************************
@@ -214,7 +308,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$full_filename = $this->pages->get("$page_id")->filesManager()->path() . basename($filename);
 		$path_parts = pathinfo($full_filename);
-		$new_filename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '-v'  . time() . '.' .  $path_parts['extension'];
+		$new_filename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '--v'  . time() . '.' .  $path_parts['extension'];
         if(file_exists($full_filename)) rename($full_filename, $new_filename);		// Rename file
         $event->setArgument(0, $new_filename);										// Sets the ::processInputAddFile event argument with the new filename
         //$this->message("Renamed: $filename to: $new_filename", Notice::log);
