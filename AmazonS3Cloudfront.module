@@ -51,7 +51,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$this->addHook('InputfieldFile::fileAdded', $this, 'addFile');						// Fired when a file is added to a page in the admin
 		if(wire('modules')->isInstalled("FieldtypeCropImage"))
-			$this->addHook('ProcessCropImage::executeSave', $this, 'addThumb');				// Fired when thumbnail is modified
+			$this->addHookAfter('ProcessCropImage::executeSave', $this, 'addThumb');				// Fired when thumbnail is modified
 		$this->addHookAfter('Pagefiles::delete', $this, 'deleteFile');						// Fired when a file is deleted from a page
 		if($this->cf)
 			$this->addHookAfter('PagefilesManager::url', $this, 'redirectURL');				// Redirect assets' URLS to Cloudfront
@@ -159,7 +159,6 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$page_id = (int) $this->input->post->pages_id;
 		$page = wire('pages')->get($page_id);
 		$prefix = wire('sanitizer')->name($this->input->post->prefix);
-		$this->message("prefix: $prefix", Notice::log);
 		$field = wire('sanitizer')->fieldName($this->input->post->field);
 		$filename = wire('sanitizer')->name($this->input->post->filename);
 		$this->message("Filename: $filename", Notice::log);
@@ -250,6 +249,20 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		catch (Exception $e){
 			throw new WireException("Error from S3: {$e->getMessage()}");  
 		}
+
+		// Hijack ProcessCropImage::executeSave return value and change it's parameters to match the new images and refresh the page
+
+		$newThumbUrl = $page->$field->url . $prefix . '_' . $tmp_img;
+		$newImageUrl = $tmp_img;
+		$targetWidth = (int) $this->input->post->width;
+		$targetHeight = (int) $this->input->post->height;
+		$pages_id = (int) $this->input->post->pages_id;
+
+		$out = "<div id='results'><img src='{$newThumbUrl}' alt='' />";
+		$out .= "<ul><li><button class='ui-button ui-widget ui-corner-all head_button_clone ui-state-default' onclick=\"window.opener.location.reload();window.close();\">" . $this->_("Wow, that looks great!") . "</button></li>";
+		if ($prefix) $out .= "<li><a class='modal' href='../?filename={$newImageUrl}&amp;prefix={$prefix}&amp;width={$targetWidth}&amp;height={$targetHeight}&amp;pages_id={$pages_id}&amp;field={$field}&amp;modal=1'>" . $this->_("Not happy? Crop again!") . "</a></li>";
+		$out .= "</ul></div>";
+		$event->return = $out;
 	}
 
 	/**********************************************************************************************
