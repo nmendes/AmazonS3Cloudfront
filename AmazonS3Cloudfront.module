@@ -27,7 +27,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		return array(
 			'title' => 'Amazon S3 / CloudFront Delivery and Backup', 
-			'version' => 50, 
+			'version' => 55, 
 			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon CloudFront.',
 			'href' => 'https://github.com/nmendes/amazons3cloudfront',
 			'singular' => true, 
@@ -161,25 +161,19 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$prefix = wire('sanitizer')->name($this->input->post->prefix);
 		$field = wire('sanitizer')->fieldName($this->input->post->field);
 		$filename = wire('sanitizer')->name($this->input->post->filename);
-		$this->message("Filename: $filename", Notice::log);
 		$fieldValue = $page->get($field);
 		$img = $fieldValue->get("$filename");
 		$imagePath = $img->filename();
 
-
-		$this->message("image: $imagePath belongs to $field", Notice::log);
 		$path = str_replace($img,'',$imagePath);
 		$old_img = pathinfo($img)['filename']; 													// old filename with no extension
 		$tmp_img = $this->addTimeStamp($this->removeTimeStamp( pathinfo($img)['filename'] )) . "." . $img->ext;   // removes old timestamp and adds new
 		$new_img = $path . $tmp_img; 															// new filename with full path
-		$this->message("new image: $new_img", Notice::log);
 		copy($imagePath, $new_img);	
 		$page->$field->remove($img); 															// Removes old file reference from PW
 		$page->$field->add($new_img); 															// Adds new file reference to PW
 		$s3path = $page . "/" . $tmp_img;
 		$s3source = $page . '/' . $old_img . "." . $img->ext;
-		$this->message("old file on s3: $s3source", Notice::log);
-		$this->message("new target on S3: $s3path", Notice::log);
 		$page->save();		
 
 		try{
@@ -206,7 +200,6 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;		// old thumbnail filename
 		$newThumb = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
-		$this->message("oldThumb: $oldThumb : newthumb: $newThumb", Notice::log);
 
 		copy($oldThumb ,$newThumb);																// copies the new thumbnail 
 		unlink($oldThumb);																		// deletes the old thumbnail
@@ -271,7 +264,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 	 **********************************************************************************************/
 
 	private function addTimeStamp($name){
-  		$newName = $name . '--v' . time();
+  		$newName = $name . '-v' . time();
 		return $newName;
 	}
 
@@ -281,7 +274,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 	 **********************************************************************************************/
 
     private function removeTimeStamp($name){
-    	$pos = strrpos($name, '--v');
+    	$pos = strrpos($name, '-v');
     	if($pos > 0)
   			$newName = substr($name, 0, $pos); // Finds the last occurrence of '--v' in a string
   		else
@@ -307,7 +300,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		$full_filename = $this->pages->get("$page_id")->filesManager()->path() . basename($filename);
 		$path_parts = pathinfo($full_filename);
-		$new_filename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '--v'  . time() . '.' .  $path_parts['extension'];
+		$new_filename = $path_parts['dirname'] . '/' . basename($filename, '.' . $path_parts['extension']) . '-v'  . time() . '.' .  $path_parts['extension'];
         if(file_exists($full_filename)) rename($full_filename, $new_filename);		// Rename file
         $event->setArgument(0, $new_filename);										// Sets the ::processInputAddFile event argument with the new filename
         //$this->message("Renamed: $filename to: $new_filename", Notice::log);
