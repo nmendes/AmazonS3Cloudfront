@@ -156,6 +156,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 	 **********************************************************************************************/
 
 	public function addThumb($event){		
+		//$this->message("Prefixes: $thumbSetting", Notice::log);
 		$page_id = (int) $this->input->post->pages_id;
 		$page = wire('pages')->get($page_id);
 		$prefix = wire('sanitizer')->name($this->input->post->prefix);
@@ -251,8 +252,9 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		$targetHeight = (int) $this->input->post->height;
 		$pages_id = (int) $this->input->post->pages_id;
 
-		$out = "<div id='results'><img src='{$newThumbUrl}' alt='' />";
-		$out .= "<ul><li><button class='ui-button ui-widget ui-corner-all head_button_clone ui-state-default' onclick=\"window.opener.location.reload();window.close();\">" . $this->_("Wow, that looks great!") . "</button></li>";
+		$out = "<script>window.opener.location.reload()</script>";				// Refreshes parent page
+		$out .= "<div id='results'><img src='{$newThumbUrl}' alt='' />";
+		$out .= "<ul><li><button class='ui-button ui-widget ui-corner-all head_button_clone ui-state-default' onclick=\"window.close();\">" . $this->_("Wow, that looks great!") . "</button></li>";
 		if ($prefix) $out .= "<li><a class='modal' href='../?filename={$newImageUrl}&amp;prefix={$prefix}&amp;width={$targetWidth}&amp;height={$targetHeight}&amp;pages_id={$pages_id}&amp;field={$field}&amp;modal=1'>" . $this->_("Not happy? Crop again!") . "</a></li>";
 		$out .= "</ul></div>";
 		$event->return = $out;
