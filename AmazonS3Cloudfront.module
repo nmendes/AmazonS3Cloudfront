@@ -156,10 +156,10 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 	 **********************************************************************************************/
 
 	public function addThumb($event){		
-		//$this->message("Prefixes: $thumbSetting", Notice::log);
+		
 		$page_id = (int) $this->input->post->pages_id;
 		$page = wire('pages')->get($page_id);
-		$prefix = wire('sanitizer')->name($this->input->post->prefix);
+		$prefix_process = wire('sanitizer')->name($this->input->post->prefix);
 		$field = wire('sanitizer')->fieldName($this->input->post->field);
 		$filename = wire('sanitizer')->name($this->input->post->filename);
 		$fieldValue = $page->get($field);
@@ -199,54 +199,63 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			throw new WireException("Error from S3: {$e->getMessage()}");  
 		}
 
-		$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;		// old thumbnail filename
-		$newThumb = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
+		$crops = $img->field->get("thumbSetting");		// Stores the thumbnail settings so it can process each type of thumbnail defined on configuration
+		//$this->message("$crops", Notice::log);
+		if (strlen($crops) > 3) {						// Handle each crop prefix
+			$cropArray = explode("\n", strtolower($crops));
+			foreach ($cropArray as $k => $v) {
+				$cropItems = explode(',', trim($v));
+				$prefix = $cropItems[0];
+				$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;		// old thumbnail filename
+				$newThumb = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
+				copy($oldThumb ,$newThumb);																// copies the new thumbnail 
+				unlink($oldThumb);																		// deletes the old thumbnail
 
-		copy($oldThumb ,$newThumb);																// copies the new thumbnail 
-		unlink($oldThumb);																		// deletes the old thumbnail
+				if (strlen($prefix) > 1) {
+					$s3path = $page . "/" . $prefix . '_' . $tmp_img;
+				} else {
+					$s3path = $page . "/" . $tmp_img;
+				}
 
-		if (strlen($prefix) > 1) {
-			$s3path = $page . "/" . $prefix . '_' . $tmp_img;
-		} else {
-			$s3path = $page . "/" . $tmp_img;
+				$s3args = array(
+					'Bucket' 	 => $this->s3_bucket,
+					'Key'        => $s3path,			// filename on S3
+					'SourceFile' => $newThumb,	    	// path to uploaded file via PW
+					'ACL'	     => $this->select_acl,
+					'Metadata'   => array(
+						'original_url' => $img->url,
+						'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
+						)
+					);
+
+				if(is_int($this->cache))				 											// Set Cache-Control Directive in seconds
+					$s3args['CacheControl'] = 'max-age=' . $this->cache;
+
+				try{																						// Adds the new thumbnail to S3
+					$result = $this->client->putObject($s3args);
+				}
+				catch (Exception $e){
+					throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
+				}
+
+				$s3path = $page . "/" . $prefix . '_' . $old_img . "." . $img->ext;
+
+				try{																						// Delete old thumbnail on S3
+					$result = $this->client->deleteObject(array(
+						'Bucket' => $this->s3_bucket,
+						'Key' => $s3path
+						));
+				}
+				catch (Exception $e){
+					throw new WireException("Error from S3: {$e->getMessage()}");  
+				}	
+			}
 		}
-		
-		$s3args = array(
-			'Bucket' 	 => $this->s3_bucket,
-			'Key'        => $s3path,			// filename on S3
-			'SourceFile' => $newThumb,	    	// path to uploaded file via PW
-			'ACL'	     => $this->select_acl,
-			'Metadata'   => array(
-				'original_url' => $img->url,
-				'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
-			)
-		);
 
-		if(is_int($this->cache))				 // Set Cache-Control Directive in seconds
-			$s3args['CacheControl'] = 'max-age=' . $this->cache;
-
-		try{																						// Adds the new thumbnail to S3
-			$result = $this->client->putObject($s3args);
-		}
-		catch (Exception $e){
-			throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
-		}
-
-		$s3path = $page . "/" . $prefix . '_' . $old_img . "." . $img->ext;
-
-		try{																						// Delete old thumbnail on S3
-			$result = $this->client->deleteObject(array(
-				'Bucket' => $this->s3_bucket,
-				'Key' => $s3path
-				));
-		}
-		catch (Exception $e){
-			throw new WireException("Error from S3: {$e->getMessage()}");  
-		}
 
 		// Hijack ProcessCropImage::executeSave return value and change it's parameters to match the new images and refresh the page
 
-		$newThumbUrl = $page->$field->url . $prefix . '_' . $tmp_img;
+		$newThumbUrl = $page->$field->url . $prefix_process . '_' . $tmp_img;
 		$newImageUrl = $tmp_img;
 		$targetWidth = (int) $this->input->post->width;
 		$targetHeight = (int) $this->input->post->height;
