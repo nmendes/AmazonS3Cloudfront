@@ -27,7 +27,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 
 		return array(
 			'title' => 'Amazon S3 / CloudFront Delivery and Backup', 
-			'version' => 55, 
+			'version' => 60, 
 			'summary' => 'Synchronize all the page assets uploaded through PW to a specified bucket in Amazon S3 and serve them through Amazon CloudFront.',
 			'href' => 'https://github.com/nmendes/amazons3cloudfront',
 			'singular' => true, 
@@ -189,15 +189,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 				throw new WireException("Error from S3: {$e->getMessage()}");  
 			}
 
-			try{
-				$result = $this->client->deleteObject(array(										// Deletes image with old timestamp on S3
-					'Bucket' => $this->s3_bucket,
-					'Key' => $s3source
-					));
-			}
-			catch (Exception $e){
-				throw new WireException("Error from S3: {$e->getMessage()}");  
-			}
+			$this->deleteFileS3($s3source);
 
 			$crops = $img->field->get("thumbSetting");		// Stores the thumbnail settings so it can process each type of thumbnail defined on configuration
 			if (strlen($crops) > 3) {						// Handle each crop prefix
@@ -209,26 +201,14 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 					$thumbPath = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
 					copy($oldThumb ,$thumbPath);																// copies the new thumbnail 
 					unlink($oldThumb);																		// deletes the old thumbnail
-
 					if (strlen($prefix) > 1) {
 						$s3path = $page . "/" . $prefix . '_' . $tmp_img;
 					} else {
 						$s3path = $page . "/" . $tmp_img;
 					}
-
 					$this->uploadFileS3($s3path, $thumbPath, $img->url);
-
-					$s3path = $page . "/" . $prefix . '_' . $old_img . "." . $img->ext;
-
-					try{																						// Delete old thumbnail on S3
-						$result = $this->client->deleteObject(array(
-							'Bucket' => $this->s3_bucket,
-							'Key' => $s3path
-							));
-					}
-					catch (Exception $e){
-						throw new WireException("Error from S3: {$e->getMessage()}");  
-					}	
+					$s3source = $page . "/" . $prefix . '_' . $old_img . "." . $img->ext;
+					$this->deleteFileS3($s3source);	
 				}
 			}
 
@@ -239,7 +219,6 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			$targetWidth = (int) $this->input->post->width;
 			$targetHeight = (int) $this->input->post->height;
 			$pages_id = (int) $this->input->post->pages_id;
-
 			$out = "<script>window.opener.location.reload()</script>";				// Refreshes parent page
 			$out .= "<div id='results'><img src='{$newThumbUrl}' alt='' />";
 			$out .= "<ul><li><button class='ui-button ui-widget ui-corner-all head_button_clone ui-state-default' onclick=\"window.close();\">" . $this->_("Wow, that looks great!") . "</button></li>";
@@ -288,6 +267,23 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		catch (Exception $e){
 			throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
 		}
+	}
+
+	/**********************************************************************************************
+	 * Deletes a file from Amazon S3
+	 *
+	 **********************************************************************************************/
+
+	private function deleteFileS3($s3source){
+		try{
+				$result = $this->client->deleteObject(array(										// Deletes image with old timestamp on S3
+					'Bucket' => $this->s3_bucket,
+					'Key' => $s3source
+					));
+			}
+			catch (Exception $e){
+				throw new WireException("Error from S3: {$e->getMessage()}");  
+			}
 	}
 
 	/**********************************************************************************************
@@ -572,7 +568,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 		
 		$tstamp = wire('modules')->get('InputfieldCheckbox');
 		$tstamp->attr('name','tstamp');
-		$tstamp->label = 'Rename uploaded files using a timestamp (versioning).'; 
+		$tstamp->label = 'Rename uploaded files using a timestamp (versioning)'; 
 		$tstamp->description = 'This option adds a timestamp to the uploaded files so they always have unique names.';
 		$tstamp->attr('autocheck', 1);
 		$tstamp->attr('uncheckedValue', 0);
