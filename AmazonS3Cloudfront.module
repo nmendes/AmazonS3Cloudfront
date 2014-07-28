@@ -206,8 +206,8 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 					$cropItems = explode(',', trim($v));
 					$prefix = $cropItems[0];
 					$oldThumb = $path . $prefix . '_' . pathinfo($img)['filename'] . "." . $img->ext;		// old thumbnail filename
-					$newThumb = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
-					copy($oldThumb ,$newThumb);																// copies the new thumbnail 
+					$thumbPath = $path . $prefix . '_' . $tmp_img;											// new thumbnail filename
+					copy($oldThumb ,$thumbPath);																// copies the new thumbnail 
 					unlink($oldThumb);																		// deletes the old thumbnail
 
 					if (strlen($prefix) > 1) {
@@ -216,26 +216,7 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 						$s3path = $page . "/" . $tmp_img;
 					}
 
-					$s3args = array(
-						'Bucket' 	 => $this->s3_bucket,
-						'Key'        => $s3path,			// filename on S3
-						'SourceFile' => $newThumb,	    	// path to uploaded file via PW
-						'ACL'	     => $this->select_acl,
-						'Metadata'   => array(
-							'original_url' => $img->url,
-							'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
-							)
-						);
-
-					if(is_int($this->cache))				 											// Set Cache-Control Directive in seconds
-						$s3args['CacheControl'] = 'max-age=' . $this->cache;
-
-					try{																						// Adds the new thumbnail to S3
-						$result = $this->client->putObject($s3args);
-					}
-					catch (Exception $e){
-						throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
-					}
+					$this->uploadFileS3($s3path, $thumbPath, $img->url);
 
 					$s3path = $page . "/" . $prefix . '_' . $old_img . "." . $img->ext;
 
@@ -266,37 +247,46 @@ class AmazonS3Cloudfront extends WireData implements Module, ConfigurableModule 
 			$out .= "</ul></div>";
 			$event->return = $out;
 		}
-		else{
+		else{																		// When not using the timestamp option
 			if (strlen($prefix_process) > 1) {
 			$thumbPath = $fieldValue->path() . $prefix_process . '_' . $filename;
 			$thumbUrl = $fieldValue->url() . $prefix_process . '_' . $filename;
 			$s3path = $page . "/" . $prefix_process . '_' . $filename;
-			} else {
+			} 
+			else {
 				$thumbPath = $imagePath;
 				$thumbUrl = $img->url();
 				$s3path = $page . "/" . $filename;
 			}
-			
-			$s3args = array(
-				'Bucket' 	 => $this->s3_bucket,
-				'Key'        => $s3path,			// filename on S3
-				'SourceFile' => $thumbPath,	    	// path to uploaded file via PW
-				'ACL'	     => $this->select_acl,
-				'Metadata'   => array(
-					'original_url' => $img->url,
-					'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
+			$this->uploadFileS3($s3path, $thumbPath, $img->url);
+		}
+	}
+
+	/**********************************************************************************************
+	 * Uploads a file to Amazon S3
+	 *
+	 **********************************************************************************************/
+
+	private function uploadFileS3($s3path, $thumbPath, $originalUrl){
+		$s3args = array(
+			'Bucket' 	 => $this->s3_bucket,
+			'Key'        => $s3path,			// filename on S3
+			'SourceFile' => $thumbPath,	    	// path to uploaded file via PW
+			'ACL'	     => $this->select_acl,
+			'Metadata'   => array(
+				'original_url' => $originalUrl,
+				'info' => 'Uploaded via the AmazonS3Cloudfront PW Module'
 				)
-			);
+		);
 
-			if(is_int($this->cache))				 // Set Cache-Control Directive in seconds
-				$s3args['CacheControl'] = 'max-age=' . $this->cache;
+		if(is_int($this->cache))				 											// Set Cache-Control Directive in seconds
+			$s3args['CacheControl'] = 'max-age=' . $this->cache;
 
-			try{
-				$result = $this->client->putObject($s3args);
-			}
-			catch (Exception $e){
-				throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
-			}
+		try{																						// Adds the new thumbnail to S3
+			$result = $this->client->putObject($s3args);
+		}
+		catch (Exception $e){
+			throw new WireException("Error: Thumbnail not Added to S3: {$e->getMessage()}");  
 		}
 	}
 
